@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Algorithm Execution Results</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body class="container my-5">
+    <nav class="mb-4">
+        <a class="btn btn-primary" href="/">← Run Another Simulation</a>
+    </nav>
+
+    <h2 class="mb-4">Simulation Outputs (Rule: {{ algo }})</h2>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card mb-4 border-primary shadow-sm">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <span>Parsed Application Inputs</span>
+                    <span class="badge bg-light text-primary font-monospace">{{ ballot_mode }} MODE</span>
+                </div>
+                <div class="card-body">
+                    <h6><strong>Target Global Budget Limit:</strong></h6> <p>{{ budget }}</p>
+                    <h6><strong>Configured Node Projects:</strong></h6> <p class="text-muted small">{{ projects }}</p>
+                    <h6><strong>Configured Profiles / Ballots:</strong></h6> <pre class="bg-light p-2 small">{{ ballots }}</pre>
+                </div>
+            </div>
+
+            <div class="card border-success shadow-sm">
+                <div class="card-header bg-success text-white">Final Derived Selection Allocation Outcome</div>
+                <div class="card-body text-center py-4">
+                    <h3 class="text-success font-monospace">{{ result }}</h3>
+                    <p class="text-muted mt-2 small">Fairness axioms, bounded budget parameters, and profiles verified natively by the runtime core algorithm module.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    <span>Algorithm Step-by-Step Logs</span>
+                    <span class="badge bg-secondary">Stdout</span>
+                </div>
+                <div class="card-body bg-black text-light font-monospace p-3 overflow-auto" style="max-height: 480px;">
+                    <pre class="text-start text-success border-0 m-0 bg-transparent" style="white-space: pre-wrap; font-size: 0.85rem;">{{ logs }}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Public Budgeting Algorithm Demo</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body class="container my-5">
+
+    <nav class="mb-4">
+        <a class="btn btn-outline-primary" href="/">Home</a>
+        <a class="btn btn-outline-secondary" href="/about">About Me</a>
+    </nav>
+
+    <header class="mb-5 p-4 bg-light rounded">
+        <h2>Budgeting Algorithm Platform</h2>
+        <p>This web interface showcases advanced participatory budgeting rules derived from state-of-the-art computational social choice research.</p>
+        <p><a href="https://www.ac.tuwien.ac.at/comsoc2025/comsoc2025-papers/50.pdf" target="_blank">Read the original paper: Method of Equal Shares with Bounded Overspending</a></p>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} shadow-sm">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form action="/run" method="POST" class="card p-4 shadow-sm">
+
+        <div class="mb-3">
+            <label class="form-label"><strong>1. Choose Allocation Rule:</strong></label>
+            <select name="algo_type" class="form-select">
+                <option value="BOS">BOS Equal Shares (Bounded Overspending)</option>
+                <option value="FRES">Fractional Equal Shares (FRES)</option>
+            </select>
+        </div>
+
+        <div class="mb-3 p-3 bg-light rounded border">
+            <label class="form-label d-block"><strong>2. Select Profile Ballot Type:</strong></label>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="ballot_type" id="type_approval" value="approval" checked onclick="updateLabelsAndPlaceholders()">
+                <label class="form-check-label" for="type_approval">
+                    <strong>Approval Ballot</strong> (Binary: 0 or 1 approvals)
+                </label>
+            </div>
+            <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="ballot_type" id="type_cardinal" value="cardinal" onclick="updateLabelsAndPlaceholders()">
+                <label class="form-check-label" for="type_cardinal">
+                    <strong>Cardinal Ballot</strong> (Continuous: Customized scores/utilities)
+                </label>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label"><strong>3. Total Budget Limit:</strong></label>
+            <input type="number" id="budget" name="budget" class="form-control" placeholder="e.g. 1000" required>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label"><strong>4. Define Available Projects:</strong> <small class="text-muted">(Format: name:cost, comma-separated)</small></label>
+            <textarea id="projects" name="projects" class="form-control" rows="2" placeholder="p1:1000, p2:500, p3:300" required></textarea>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label" id="ballot_label"><strong>5. Voter Profiles / Ballots:</strong></label>
+            <textarea id="ballots" name="ballots" class="form-control font-monospace" rows="5" required></textarea>
+            <div class="form-text text-muted" id="ballot_instruction"></div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-success flex-grow-1">Execute Algorithm Engine</button>
+            <button type="button" class="btn btn-warning" onclick="generateRandomData()">Autofill Mock System Data</button>
+        </div>
+    </form>
+
+    <script>
+    // Context-sensitive interface formatting logic updates
+    function updateLabelsAndPlaceholders() {
+        const isCardinal = document.getElementById('type_cardinal').checked;
+        const label = document.getElementById('ballot_label');
+        const instruction = document.getElementById('ballot_instruction');
+        const textarea = document.getElementById('ballots');
+
+        if (isCardinal) {
+            label.innerHTML = "<strong>5. Voter Profiles / Cardinal Ballots:</strong> <small class='text-danger'>(Scored Mode)</small>";
+            instruction.textContent = "Format: Provide one voter profile per line using 'project:score'. Example line: p1:100, p2:2, p3:45";
+            textarea.placeholder = "p1:100, p2:2\np1:1, p2:2\np1:50, p3:120";
+        } else {
+            label.innerHTML = "<strong>5. Voter Profiles / Approval Ballots:</strong> <small class='text-primary'>(Binary Mode)</small>";
+            instruction.textContent = "Format: Provide one voter ballot per line listing approved items separated by commas. Example line: p1,p2";
+            textarea.placeholder = "p1,p2\np2,p3\nd1";
+        }
+    }
+
+    // Interactive Random Profile Data Engine
+    function generateRandomData() {
+        const isCardinal = document.getElementById('type_cardinal').checked;
+
+        const numProjects = Math.floor(Math.random() * 3) + 3; // 3 to 5 projects
+        const numVoters = Math.floor(Math.random() * 4) + 4;   // 4 to 7 voters
+
+        // 1. Build logical structural projects array
+        let projArr = [];
+        let projNames = [];
+        for(let i = 1; i <= numProjects; i++) {
+            let cost = (Math.floor(Math.random() * 8) + 2) * 100; // costs 200 - 900
+            projArr.push(`p${i}:${cost}`);
+            projNames.push(`p${i}`);
+        }
+
+        // 2. Build voter data matrix layout lines based on active radio type
+        let ballotLines = [];
+        for(let j = 0; j < numVoters; j++) {
+            let shuffled = [...projNames].sort(() => 0.5 - Math.random());
+            let contextCount = Math.floor(Math.random() * 2) + 2; // pick 2 to 3 projects
+            let selectedProj = shuffled.slice(0, contextCount);
+
+            if (isCardinal) {
+                // Generate scored entries: e.g., "p1:85, p2:12"
+                let linePairs = selectedProj.map(name => {
+                    let randomScore = Math.floor(Math.random() * 100) + 1; // scores 1 to 100
+                    return `${name}:${randomScore}`;
+                });
+                ballotLines.push(linePairs.join(', '));
+            } else {
+                // Generate classical flat approval tokens: e.g., "p1, p2"
+                ballotLines.push(selectedProj.join(', '));
+            }
+        }
+
+        // Output parameters to visual form objects
+        document.getElementById('budget').value = Math.floor(numProjects * 250);
+        document.getElementById('projects').value = projArr.join(', ');
+        document.getElementById('ballots').value = ballotLines.join('\n');
+    }
+
+    // Run initializing view state settings on application bootstrap
+    updateLabelsAndPlaceholders();
+    </script>
+</body>
+</html>
