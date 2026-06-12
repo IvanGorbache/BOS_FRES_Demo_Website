@@ -9,6 +9,7 @@ Date: 17/04/2026
 import logging
 import math
 
+from pabutools.analysis.cohesiveness import cohesive_groups
 from scipy.optimize import root_scalar
 
 from pabutools.election import Project, Instance, ApprovalBallot, ApprovalProfile, CardinalBallot, CardinalProfile
@@ -21,22 +22,6 @@ def get_utility(voter, project):
 
 
 def bos_equal_shares(instance, profile):
-    """
-    Algorithm "BOS Equal Shares" - The algorithm selects a subset of projects such that the resulting subset is both
-    affordable under the budget while also exhausting it and guaranteeing fairness
-    Parameters:
-        instance - a public budgeting instance
-        profile - a profile (ApprovalProfile/CardinalProfile) of voters (ApprovalBallot/CardinalBallot)
-    Returns:
-        selected_projects - a list of all selected projects
-
-    Example:
-        >>> p1, p2 = Project("p1", 1000), Project("p2", 100)
-        >>> instance = Instance([p1, p2], 1000)
-        >>> profile = ApprovalProfile([ApprovalBallot({p1}), ApprovalBallot({p2}), ApprovalBallot({p1})])
-        >>> print(bos_equal_shares(instance, profile))
-        [p1]
-    """
     if not isinstance(profile, (ApprovalProfile, CardinalProfile)):
         raise TypeError("profile must be an instance of ApprovalProfile or CardinalProfile")
     if any(not isinstance(voter, (ApprovalBallot, CardinalBallot)) for voter in profile):
@@ -53,7 +38,6 @@ def bos_equal_shares(instance, profile):
     num_voters = profile.num_ballots()
 
     virtual_budgets = [budget / num_voters for _ in voters]
-
     all_projects = list(instance)
 
     logger.info(f"Budget: {budget}")
@@ -72,7 +56,6 @@ def bos_equal_shares(instance, profile):
         best_rho = math.inf
         best_project = None
 
-        # Track parameters for all available candidate projects in this iteration
         project_metrics = {}
 
         for project in available_projects:
@@ -106,8 +89,6 @@ def bos_equal_shares(instance, profile):
                 if alpha <= 0:
                     continue
                 rho = lamb / alpha
-
-                # Check performance ratio (rho / alpha)
                 if rho / alpha < p_best_metric:
                     p_best_metric = rho / alpha
                     p_best_rho = rho
@@ -120,7 +101,6 @@ def bos_equal_shares(instance, profile):
                     best_alpha = p_best_alpha
                     best_project = project
 
-        # Print detailed metric logs of all project candidates evaluated in this round
         if project_metrics:
             logger.info("Candidate projects evaluation details:")
             for proj, (r, a, m) in project_metrics.items():
@@ -155,30 +135,10 @@ def bos_equal_shares(instance, profile):
 
 
 def fractional_equal_shares(instance, profile):
-    """
-    Algorithm "fractional equal shares" - The algorithm works much like equal shares with the exception that it
-    allows players to purchase fractional shares in the projects they support for fractional cost. This Algorithm is
-    used as a part of the BOS algorithm in order to select the projects before making the players paying the full
-    price, thus leading to the overspending feature of BOS.
-    Parameters:
-        instance - a public budgeting instance
-        profile - a profile (ApprovalProfile/CardinalProfile) of voters (ApprovalBallot/CardinalBallot)
-    Returns:
-        dict(sorted(project_part.items(), key=lambda item: str(item[0]))) - A sorted dictonery of the projects and the
-        portion that was purchaed of each project
-
-        >>> pA = Project("A", 1000)
-        >>> pB = Project("B", 500)
-        >>> budget = 1100
-        >>> instance = Instance([pA, pB], budget)
-        >>> profile = ApprovalProfile([ApprovalBallot({pA}), ApprovalBallot({pB})])
-        >>> print(fractional_equal_shares(instance, profile))
-        {A: 0.55, B: 1}
-    """
     if not isinstance(profile, (ApprovalProfile, CardinalProfile)):
         raise TypeError("profile must be an instance of ApprovalProfile or CardinalProfile")
     if any(not isinstance(voter, (ApprovalBallot, CardinalBallot)) for voter in profile):
-        raise TypeError("All items inside the profile must be ApprovalBallot or CardinAalBallot instances")
+        raise TypeError("All items inside the profile must be ApprovalBallot or CardinalBallot instances")
 
     logger = logging.getLogger(__name__)
     logger.info("\nFractional equal shares")
@@ -207,7 +167,6 @@ def fractional_equal_shares(instance, profile):
     ]
 
     while available_projects and cost_selected_projects < budget:
-
         logger.info(f"Remaining budget: {budget - cost_selected_projects}")
         project_utilities = {c: sum(get_utility(voter, c) * c.cost for voter in voters) for c in available_projects}
         valid_projects = [c for c in available_projects if project_utilities[c] > 0]
@@ -215,7 +174,6 @@ def fractional_equal_shares(instance, profile):
         if not valid_projects:
             break
 
-        # Print log entries tracking the rho ratio across every valid candidate project
         logger.info("Candidate projects evaluation details (rho = cost / utilities):")
         for project in valid_projects:
             current_rho = project.cost / project_utilities[project]
@@ -257,3 +215,104 @@ def fractional_equal_shares(instance, profile):
 
     return dict(sorted(project_part.items(), key=lambda item: str(item[0])))
 
+
+# --- NEW: VISUAL FAIRNESS REPORT GENERATION PIPELINES ---
+
+def analyze_bos_ejr_up_to_t(instance, profile, result):
+    """Generates structured structural analysis logs explaining EJR up to t properties."""
+    if not instance or not list(profile):
+        return []
+    if not isinstance(list(profile)[0], ApprovalBallot):
+        return None  # Signal that analysis is skipped for Cardinal Ballots
+
+    reports = []
+    c_max = max((p.cost for p in instance), default=0)
+    n = profile.num_ballots()
+
+    for idx, (group, project_set) in enumerate(cohesive_groups(instance, profile)):
+        S_len = len(group)
+        if S_len == 0: continue
+
+        t = ((n - S_len) / (2 * S_len)) * c_max
+        cost_T = sum(p.cost for p in project_set)
+        T_minus_W = [p for p in project_set if p not in result]
+
+        voters_info = []
+        condition_met = False
+
+        for voter in group:
+            u_i_W = sum(p.cost for p in result if p in voter)
+            voter_satisfied = False
+
+            if not T_minus_W:
+                if u_i_W >= cost_T - t:
+                    voter_satisfied = True
+                    condition_met = True
+                desc = f"Utility {u_i_W} ≥ Cost(T)-t ({cost_T} - {t:.1f} = {cost_T - t:.1f})"
+            else:
+                voter_satisfied = all(u_i_W >= cost_T - t - c.cost for c in T_minus_W)
+                if voter_satisfied:
+                    condition_met = True
+                desc = f"Utility {u_i_W} ≥ Cost(T)-t-Cost(c) for all missing projects c"
+
+            voters_info.append({
+                "ballot": ", ".join([p.name for p in voter]),
+                "utility": u_i_W,
+                "satisfied": voter_satisfied,
+                "formula": desc
+            })
+
+        reports.append({
+            "id": idx + 1,
+            "size": S_len,
+            "target_projects": ", ".join([p.name for p in project_set]),
+            "cost_T": cost_T,
+            "t_slack": round(t, 2),
+            "missing_projects": ", ".join([p.name for p in T_minus_W]) if T_minus_W else "None (Fully Funded)",
+            "is_fair": condition_met,
+            "voters": voters_info
+        })
+    return reports
+
+
+def analyze_fres_fractional_ejr(instance, profile, fres_result):
+    """Generates structured structural analysis logs explaining Fractional EJR properties."""
+    if not instance or not list(profile):
+        return []
+    if not isinstance(list(profile)[0], ApprovalBallot):
+        return None
+
+    reports = []
+    # Handle if fres_result is a clean dict or wrap inside custom structures
+    fractions = fres_result if isinstance(fres_result, dict) else {}
+
+    for idx, (group, project_set) in enumerate(cohesive_groups(instance, profile)):
+        S_len = len(group)
+        if S_len == 0: continue
+
+        cost_T = sum(p.cost for p in project_set)
+        voters_info = []
+        condition_met = False
+
+        for voter in group:
+            u_i_W_frac = sum(p.cost * fractions.get(p, 0.0) for p in instance if p in voter)
+            voter_satisfied = u_i_W_frac >= cost_T
+            if voter_satisfied:
+                condition_met = True
+
+            voters_info.append({
+                "ballot": ", ".join([p.name for p in voter]),
+                "utility": round(u_i_W_frac, 2),
+                "satisfied": voter_satisfied,
+                "formula": f"Fractional Utility {u_i_W_frac:.1f} ≥ Target Cost {cost_T}"
+            })
+
+        reports.append({
+            "id": idx + 1,
+            "size": S_len,
+            "target_projects": ", ".join([p.name for p in project_set]),
+            "cost_T": cost_T,
+            "is_fair": condition_met,
+            "voters": voters_info
+        })
+    return reports

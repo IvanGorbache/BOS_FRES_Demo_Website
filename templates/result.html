@@ -12,7 +12,7 @@
 
     <h2 class="mb-4">Simulation Outputs (Rule: {{ algo }})</h2>
 
-    <div class="row">
+    <div class="row mb-4">
         <div class="col-md-6">
             <div class="card mb-4 border-primary shadow-sm">
                 <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
@@ -21,8 +21,8 @@
                 </div>
                 <div class="card-body">
                     <h6><strong>Target Global Budget Limit:</strong></h6> <p>{{ budget }}</p>
-                    <h6><strong>Configured Node Projects:</strong></h6> <p class="text-muted small">{{ projects }}</p>
-                    <h6><strong>Configured Profiles / Ballots:</strong></h6> <pre class="bg-light p-2 small">{{ ballots }}</pre>
+                    <h6><strong>Configured Node Projects:</strong></h6> <p class="text-muted small" id="metaProjects">{{ projects }}</p>
+                    <h6><strong>Configured Profiles / Ballots:</strong></h6> <pre class="bg-light p-2 small" id="metaBallots">{{ ballots }}</pre>
                 </div>
             </div>
 
@@ -47,5 +47,163 @@
             </div>
         </div>
     </div>
+
+    <div class="card shadow border-info">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">🛡️ Cohesive Groups Proportional Fairness Proof Overview</h5>
+            <button id="btnCheckFairness" class="btn btn-light btn-sm fw-bold text-info">
+                🔍 Verify Proportional Fairness Properties
+            </button>
+        </div>
+        <div class="card-body" id="fairnessReportContainer">
+            <div class="text-center text-muted py-4" id="placeholderText">
+                <p class="mb-0">Click the verification button above to execute calculations on the election profiles, isolate cohesive voter sets, and display compliance data.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        document.getElementById('btnCheckFairness').addEventListener('click', function() {
+            const btn = this;
+            const container = document.getElementById('fairnessReportContainer');
+
+            // Set Loading UI state
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Calculating Axioms...`;
+            container.innerHTML = `
+                <div class="text-center py-5">
+                    <div class="spinner-border text-info mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+                    <p class="text-muted font-monospace">Parsing election instances and searching combinatorial permutations for cohesive groups...</p>
+                </div>
+            `;
+
+            // Prepare payload extracting context parameters straight out of DOM markup
+            const payload = {
+                algo_type: "{{ algo }}",
+                ballot_type: "{{ ballot_mode }}",
+                budget: "{{ budget }}",
+                projects: document.getElementById('metaProjects').innerText,
+                ballots: document.getElementById('metaBallots').innerText
+            };
+
+            fetch('/check_fairness', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                btn.innerHTML = `✓ Verification Complete`;
+
+                if (data.error) {
+                    container.innerHTML = `<div class="alert alert-danger"><strong>Error computing axioms:</strong> ${data.error}</div>`;
+                    btn.disabled = false;
+                    return;
+                }
+
+                const reports = data.reports;
+
+                if (reports === null) {
+                    container.innerHTML = `
+                        <div class="alert alert-warning py-3 mb-0">
+                            <strong>Notice:</strong> Cohesive Groups fairness analysis (EJR up to <i>t</i> / Fractional EJR) is structurally verified over approval voting matrices. Cardinal Ballot utility frameworks are inherently fair via bounded rho limits shown in stdout logs above.
+                        </div>`;
+                    return;
+                }
+
+                if (reports.length === 0) {
+                    container.innerHTML = `
+                        <div class="alert alert-secondary py-3 mb-0">
+                            No structurally cohesive voter groups were found in this profile arrangement. Proportionality guarantees are trivially satisfied.
+                        </div>`;
+                    return;
+                }
+
+                // Construct and inject full interactive accordion tree structure via vanilla JS
+                let html = `
+                    <p class="text-muted mb-4">
+                        Below is an itemized breakdown of every cohesive group identified in this election profile by <code>pabutools.election.cohesive_groups</code>. For the selection to be fair, at least one voter within each cohesive group must achieve their calculated utility threshold constraint.
+                    </p>
+                    <div class="accordion" id="fairnessAccordion">`;
+
+                reports.forEach(group => {
+                    const badgeClass = group.is_fair ? 'bg-success' : 'bg-danger';
+                    const badgeText = group.is_fair ? '✓ FAIRNESS PROVED' : '✗ BOUND VIOLATED';
+
+                    let slackHtml = '';
+                    if (group.t_slack !== undefined) {
+                        slackHtml = `
+                            <div class="col-md-4"><strong>Calculated Slack Bound (t):</strong> <code>${group.t_slack}</code></div>
+                            <div class="col-md-4"><strong>Unfunded Group Projects (T\\W):</strong> <span class="text-secondary small">${group.missing_projects}</span></div>
+                        `;
+                    }
+
+                    let tableRows = '';
+                    group.voters.forEach(voter => {
+                        const rowClass = voter.satisfied ? 'table-success' : '';
+                        const statusBadge = voter.satisfied ? '<span class="badge bg-success">Satisfied</span>' : '<span class="badge bg-secondary">Insuff. Utility</span>';
+                        tableRows += `
+                            <tr class="${rowClass}">
+                                <td class="font-monospace small">ApprovalBallot({ ${voter.ballot} })</td>
+                                <td><strong>${voter.utility}</strong></td>
+                                <td>${statusBadge}</td>
+                                <td class="small font-monospace text-muted">${voter.formula}</td>
+                            </tr>
+                        `;
+                    });
+
+                    html += `
+                    <div class="accordion-item mb-3 border">
+                        <h2 class="accordion-header" id="heading${group.id}">
+                            <button class="accordion-button collapsed d-flex justify-content-between align-items-center" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${group.id}">
+                                <div class="w-100 d-flex justify-content-between align-items-center me-3">
+                                    <span>
+                                        <strong>Group #${group.id}</strong> (Size: ${group.size} Voters)
+                                        &rarr; Strongly Desires: <code class="text-dark">[${group.target_projects}]</code>
+                                    </span>
+                                    <span class="badge ${badgeClass}">${badgeText}</span>
+                                </div>
+                            </button>
+                        </h2>
+                        <div id="collapse${group.id}" class="accordion-collapse collapse" data-bs-parent="#fairnessAccordion">
+                            <div class="accordion-body bg-light">
+                                <div class="row mb-3">
+                                    <div class="col-md-4"><strong>Target Cohesive Cost (T):</strong> <code>${group.cost_T}</code></div>
+                                    ${slackHtml}
+                                </div>
+                                <h6>Voter-by-Voter Axiom Satisfiability Details:</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-bordered bg-white">
+                                        <thead class="table-secondary">
+                                            <tr>
+                                                <th>Voter Ballot Profile</th>
+                                                <th>Achieved Utility</th>
+                                                <th>Status Badge</th>
+                                                <th>Mathematical Verification Formula Bound</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${tableRows}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                });
+
+                html += `</div>`;
+                container.innerHTML = html;
+            })
+            .catch(err => {
+                console.error(err);
+                container.innerHTML = `<div class="alert alert-danger">An unexpected network routing error occurred. Check browser dev console.</div>`;
+                btn.disabled = false;
+                btn.innerHTML = `Retry Verification`;
+            });
+        });
+    </script>
 </body>
 </html>

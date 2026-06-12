@@ -1,6 +1,6 @@
 import io
 import logging
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from pabutools.election import Project, Instance, ApprovalProfile, ApprovalBallot, CardinalProfile, CardinalBallot
 
 # Import your algorithm implementations
@@ -78,14 +78,13 @@ def index():
 @app.route('/run', methods=['POST'])
 def run_algorithm():
     algo_type = request.form.get('algo_type')
-    ballot_type = request.form.get('ballot_type')  # 'approval' or 'cardinal'
+    ballot_type = request.form.get('ballot_type')
     projects_raw = request.form.get('projects')
     ballots_raw = request.form.get('ballots')
     budget_raw = request.form.get('budget')
 
-    # Intercept system out logging streams in real time
-    log_stream = io.StringIO()
-    handler = logging.StreamHandler(log_stream)
+    io_stream = io.StringIO()
+    handler = logging.StreamHandler(io_stream)
     handler.setFormatter(logging.Formatter('%(message)s'))
 
     target_logger = logging.getLogger('bos_equal_shares')
@@ -93,23 +92,19 @@ def run_algorithm():
     target_logger.addHandler(handler)
 
     try:
-        # 1. Parse string inputs safely using our updated schema converter
         instance, profile = parse_inputs(projects_raw, ballots_raw, budget_raw, ballot_type)
 
-        # 2. Execute selected logic path
         if algo_type == 'BOS':
             result = bos_equal_shares(instance, profile)
-            result_display = ", ".join(
-                [p.name for p in result]) if result else "No projects selected within budget constraints."
+            result_display = ", ".join([p.name for p in result]) if result else "No allocations selected."
         elif algo_type == 'FRES':
             result = fractional_equal_shares(instance, profile)
             result_display = ", ".join([f"{p.name}: {round(fraction, 2)}" for p, fraction in result.items()])
         else:
-            raise ValueError("Invalid core algorithm engine selection token.")
+            raise ValueError("Invalid core rule token.")
 
-        # Clean up handlers and isolate output buffer metrics
         target_logger.removeHandler(handler)
-        captured_logs = log_stream.getvalue()
+        captured_logs = io_stream.getvalue()
 
         return render_template('result.html',
                                algo=algo_type,
@@ -118,12 +113,43 @@ def run_algorithm():
                                projects=projects_raw,
                                ballots=ballots_raw,
                                result=result_display,
-                               logs=captured_logs)
+                               logs=captured_logs)  # <-- Fairness calculations removed from here
 
     except Exception as e:
         target_logger.removeHandler(handler)
         flash(f"Input Processing Error: {str(e)}", "danger")
         return redirect(url_for('index'))
+
+
+@app.route('/check_fairness', methods=['POST'])
+def check_fairness():
+    """Asynchronous endpoint to calculate and return cohesive group fairness metrics."""
+    try:
+        data = request.get_json()
+        algo_type = data.get('algo_type')
+        ballot_type = data.get('ballot_type').lower()
+        projects_raw = data.get('projects')
+        ballots_raw = data.get('ballots')
+        budget_raw = data.get('budget')
+
+        from app import parse_inputs  # or wherever your input parser lives
+        from bos_equal_shares import (bos_equal_shares, fractional_equal_shares,
+                                      analyze_bos_ejr_up_to_t, analyze_fres_fractional_ejr)
+
+        instance, profile = parse_inputs(projects_raw, ballots_raw, budget_raw, ballot_type)
+
+        if algo_type == 'BOS':
+            result = bos_equal_shares(instance, profile)
+            reports = analyze_bos_ejr_up_to_t(instance, profile, result)
+        elif algo_type == 'FRES':
+            result = fractional_equal_shares(instance, profile)
+            reports = analyze_fres_fractional_ejr(instance, profile, result)
+        else:
+            return jsonify({"error": "Unknown rule type"}), 400
+
+        return jsonify({"reports": reports})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/about')
