@@ -71,6 +71,10 @@ def bos_equal_shares(instance, profile):
         best_alpha = 1
         best_rho = math.inf
         best_project = None
+
+        # Track parameters for all available candidate projects in this iteration
+        project_metrics = {}
+
         for project in available_projects:
             supporters = [(i, voter) for i, voter in enumerate(voters) if get_utility(voter, project) > 0]
             if not supporters:
@@ -89,6 +93,11 @@ def bos_equal_shares(instance, profile):
             lambdas = [virtual_budgets[i] / (project.cost * u) for i, u in
                        zip([s[0] for s in supporters], supporters_utils)]
             lambdas.append(lambda_prime)
+
+            p_best_metric = math.inf
+            p_best_rho = math.inf
+            p_best_alpha = 1
+
             for lamb in lambdas:
                 total_collected = (sum(
                     min(virtual_budgets[i], lamb * project.cost * u) for i, u in
@@ -97,10 +106,25 @@ def bos_equal_shares(instance, profile):
                 if alpha <= 0:
                     continue
                 rho = lamb / alpha
-                if rho / alpha < best_rho / best_alpha:
-                    best_rho = rho
-                    best_alpha = alpha
+
+                # Check performance ratio (rho / alpha)
+                if rho / alpha < p_best_metric:
+                    p_best_metric = rho / alpha
+                    p_best_rho = rho
+                    p_best_alpha = alpha
+
+            if p_best_metric != math.inf:
+                project_metrics[project] = (p_best_rho, p_best_alpha, p_best_metric)
+                if p_best_metric < (best_rho / best_alpha if best_project else math.inf):
+                    best_rho = p_best_rho
+                    best_alpha = p_best_alpha
                     best_project = project
+
+        # Print detailed metric logs of all project candidates evaluated in this round
+        if project_metrics:
+            logger.info("Candidate projects evaluation details:")
+            for proj, (r, a, m) in project_metrics.items():
+                logger.info(f"  -> Project {proj.name}: rho = {r:.4f}, alpha = {a:.4f}, rho/alpha = {m:.4f}")
 
         if best_project is None:
             break
@@ -154,7 +178,7 @@ def fractional_equal_shares(instance, profile):
     if not isinstance(profile, (ApprovalProfile, CardinalProfile)):
         raise TypeError("profile must be an instance of ApprovalProfile or CardinalProfile")
     if any(not isinstance(voter, (ApprovalBallot, CardinalBallot)) for voter in profile):
-        raise TypeError("All items inside the profile must be ApprovalBallot or CardinalBallot instances")
+        raise TypeError("All items inside the profile must be ApprovalBallot or CardinAalBallot instances")
 
     logger = logging.getLogger(__name__)
     logger.info("\nFractional equal shares")
@@ -191,6 +215,12 @@ def fractional_equal_shares(instance, profile):
         if not valid_projects:
             break
 
+        # Print log entries tracking the rho ratio across every valid candidate project
+        logger.info("Candidate projects evaluation details (rho = cost / utilities):")
+        for project in valid_projects:
+            current_rho = project.cost / project_utilities[project]
+            logger.info(f"  -> Project {project.name}: rho = {current_rho:.4f}")
+
         c = min(valid_projects, key=lambda project: project.cost / project_utilities[project])
         p = c.cost / project_utilities[c]
 
@@ -226,3 +256,4 @@ def fractional_equal_shares(instance, profile):
         logger.info(f"Selected project parts: {project_part}\n")
 
     return dict(sorted(project_part.items(), key=lambda item: str(item[0])))
+

@@ -62,10 +62,24 @@
             <textarea id="projects" name="projects" class="form-control" rows="2" placeholder="p1:1000, p2:500, p3:300" required></textarea>
         </div>
 
-        <div class="mb-3">
+        <div class="mb-4">
             <label class="form-label" id="ballot_label"><strong>5. Voter Profiles / Ballots:</strong></label>
             <textarea id="ballots" name="ballots" class="form-control font-monospace" rows="5" required></textarea>
             <div class="form-text text-muted" id="ballot_instruction"></div>
+        </div>
+
+        <div class="card p-3 mb-4 bg-light border-warning">
+            <h6 class="text-warning-dark mb-3"><strong>🎲 Random Autofill Constraints Configuration</strong></h6>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label small">Target Number of Projects:</label>
+                    <input type="number" id="num_projects" class="form-control form-control-sm" placeholder="Optional (e.g. 5)" min="1">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small">Target Number of Voters:</label>
+                    <input type="number" id="num_voters" class="form-control form-control-sm" placeholder="Optional (e.g. 10)" min="1">
+                </div>
+            </div>
         </div>
 
         <div class="d-flex gap-2">
@@ -89,16 +103,25 @@
         } else {
             label.innerHTML = "<strong>5. Voter Profiles / Approval Ballots:</strong> <small class='text-primary'>(Binary Mode)</small>";
             instruction.textContent = "Format: Provide one voter ballot per line listing approved items separated by commas. Example line: p1,p2";
-            textarea.placeholder = "p1,p2\np2,p3\nd1";
+            textarea.placeholder = "p1,p2\np2,p3\np1";
         }
     }
 
-    // Interactive Random Profile Data Engine
+    // Interactive Random Profile Data Engine with parameter injection
     function generateRandomData() {
         const isCardinal = document.getElementById('type_cardinal').checked;
 
-        const numProjects = Math.floor(Math.random() * 3) + 3; // 3 to 5 projects
-        const numVoters = Math.floor(Math.random() * 4) + 4;   // 4 to 7 voters
+        // Read counts from user input fields; fallback to a random baseline if empty
+        const userProjectsInput = document.getElementById('num_projects').value;
+        const userVotersInput = document.getElementById('num_voters').value;
+
+        const numProjects = userProjectsInput ? parseInt(userProjectsInput) : Math.floor(Math.random() * 3) + 3; // 3 to 5
+        const numVoters = userVotersInput ? parseInt(userVotersInput) : Math.floor(Math.random() * 4) + 4;     // 4 to 7
+
+        if (numProjects < 1 || numVoters < 1) {
+            alert("Please enter a valid number of projects and voters (minimum 1).");
+            return;
+        }
 
         // 1. Build logical structural projects array
         let projArr = [];
@@ -113,8 +136,9 @@
         let ballotLines = [];
         for(let j = 0; j < numVoters; j++) {
             let shuffled = [...projNames].sort(() => 0.5 - Math.random());
-            let contextCount = Math.floor(Math.random() * 2) + 2; // pick 2 to 3 projects
-            let selectedProj = shuffled.slice(0, contextCount);
+            // Make sure voters approve at least 1 project, up to a max of all available items
+            let maxApprovals = Math.min(shuffled.length, Math.floor(Math.random() * 3) + 1);
+            let selectedProj = shuffled.slice(0, maxApprovals);
 
             if (isCardinal) {
                 // Generate scored entries: e.g., "p1:85, p2:12"
@@ -129,8 +153,8 @@
             }
         }
 
-        // Output parameters to visual form objects
-        document.getElementById('budget').value = Math.floor(numProjects * 250);
+        // Calculate a proportional budget parameter bound to ensure realistic execution criteria
+        document.getElementById('budget').value = Math.floor(numProjects * 200);
         document.getElementById('projects').value = projArr.join(', ');
         document.getElementById('ballots').value = ballotLines.join('\n');
     }
